@@ -20,55 +20,65 @@ jobs:
             arch: arm64
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-          cache: true
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+        cache: true
 
-      - name: Get version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+    - name: Build and package binary
+      env:
+        GOOS: ${{ matrix.os }}
+        GOARCH: ${{ matrix.arch }}
+        CGO_ENABLED: 0
+      run: |
+        if [ "${{ matrix.os }}" = "windows" ]; then
+          EXT=".exe"
+          ARCHIVE_EXT=".zip"
+        else
+          EXT=""
+          ARCHIVE_EXT=".tar.gz"
+        fi
+        
+        BINARY_NAME="unp${EXT}"
+        ARCHIVE_NAME="unp-${{ matrix.os }}-${{ matrix.arch }}${ARCHIVE_EXT}"
+        
+        # Build binary
+        go build -ldflags="-s -w" -o ${BINARY_NAME} .
+        
+        # Create archive
+        if [ "${{ matrix.os }}" = "windows" ]; then
+          zip ${ARCHIVE_NAME} ${BINARY_NAME}
+        else
+          tar -czf ${ARCHIVE_NAME} ${BINARY_NAME}
+        fi
 
-      - name: Build and package binary
-        env:
-          GOOS: ${{ matrix.os }}
-          GOARCH: ${{ matrix.arch }}
-          CGO_ENABLED: 0
-        run: |
-          if [ "${{ matrix.os }}" = "windows" ]; then
-            EXT=".exe"
-            ARCHIVE_EXT=".zip"
-          else
-            EXT=""
-            ARCHIVE_EXT=".tar.gz"
-          fi
-          
-          BINARY_NAME="unp${EXT}"
-          ARCHIVE_NAME="unp-${{ matrix.os }}-${{ matrix.arch }}${ARCHIVE_EXT}"
-          
-          # Build binary
-          go build -ldflags="-s -w" -o ${BINARY_NAME} .
-          
-          # Create archive
-          if [ "${{ matrix.os }}" = "windows" ]; then
-            zip ${ARCHIVE_NAME} ${BINARY_NAME}
-          else
-            tar -czf ${ARCHIVE_NAME} ${BINARY_NAME}
-          fi
-          
-          echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: unp-${{ matrix.os }}-${{ matrix.arch }}
+        path: unp-${{ matrix.os }}-${{ matrix.arch }}.*
 
-      - name: Upload archives to release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ env.ARCHIVE_NAME }}
-          generate_release_notes: true
-          make_latest: true
-          fail_on_unmatched_files: true
-          append_body: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+
+    - name: Create release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          unp-linux-amd64/unp-linux-amd64.tar.gz
+          unp-linux-arm64/unp-linux-arm64.tar.gz
+          unp-darwin-amd64/unp-darwin-amd64.tar.gz
+          unp-darwin-arm64/unp-darwin-arm64.tar.gz
+          unp-windows-amd64/unp-windows-amd64.zip
+        generate_release_notes: true
+        make_latest: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

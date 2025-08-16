@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	bzip2_compress "github.com/dsnet/compress/bzip2"
+	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 	"github.com/ulikunitz/xz"
 	passwordzip "github.com/yeka/zip"
@@ -24,6 +25,7 @@ type Config struct {
 	CompressType string
 	OutputFile   string
 	Password     string
+	Progress     bool
 }
 
 var config Config
@@ -43,6 +45,7 @@ func main() {
 	rootCmd.Flags().StringVarP(&config.CompressType, "type", "t", "", "创建归档的压缩类型（zip、tar、tar.gz、tar.bz2、tar.xz）")
 	rootCmd.Flags().StringVarP(&config.OutputFile, "file", "f", "", "输出归档文件名（使用-t时必需）")
 	rootCmd.Flags().StringVarP(&config.Password, "password", "p", "", "ZIP加密/解密密码")
+	rootCmd.Flags().BoolVar(&config.Progress, "progress", true, "显示进度条")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -106,6 +109,28 @@ func extractFile(filename string) error {
 		return fmt.Errorf("could not seek to beginning: %w", err)
 	}
 
+	// Get file size for progress bar
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("could not get file info: %w", err)
+	}
+	fileSize := fileInfo.Size()
+
+	// Create progress bar if enabled and not in verbose mode
+	var bar *progressbar.ProgressBar
+	if config.Progress && !config.Verbose {
+		bar = progressbar.DefaultBytes(
+			fileSize,
+			fmt.Sprintf("Extracting %s", filepath.Base(filename)),
+		)
+	}
+
+	var reader io.Reader = file
+	if bar != nil {
+		progressReader := progressbar.NewReader(file, bar)
+		reader = &progressReader
+	}
+
 	outputDir := config.OutputDir
 	if outputDir == "" {
 		outputDir = filepath.Dir(filename)
@@ -113,21 +138,33 @@ func extractFile(filename string) error {
 
 	switch format {
 	case "zip":
-		return extractZip(filename, outputDir)
+		// ZIP needs special handling as it requires random access
+		// Calculate uncompressed size for ZIP files
+		if bar != nil {
+			uncompressedSize, err := calculateZipUncompressedSize(filename)
+			if err == nil && uncompressedSize > 0 {
+				// Create a new progress bar with correct size
+				bar = progressbar.DefaultBytes(
+					uncompressedSize,
+					fmt.Sprintf("Extracting %s", filepath.Base(filename)),
+				)
+			}
+		}
+		return extractZipWithProgress(filename, outputDir, bar)
 	case "tar":
-		return extractTar(file, outputDir)
+		return extractTar(reader, outputDir)
 	case "tar.gz", "tgz":
-		return extractTarGz(file, outputDir)
+		return extractTarGz(reader, outputDir)
 	case "tar.bz2", "tbz2":
-		return extractTarBz2(file, outputDir)
+		return extractTarBz2(reader, outputDir)
 	case "tar.xz", "txz":
-		return extractTarXz(file, outputDir)
+		return extractTarXz(reader, outputDir)
 	case "gz":
-		return extractGz(file, filename, outputDir)
+		return extractGz(reader, filename, outputDir)
 	case "bz2":
-		return extractBz2(file, filename, outputDir)
+		return extractBz2(reader, filename, outputDir)
 	case "xz":
-		return extractXz(file, filename, outputDir)
+		return extractXz(reader, filename, outputDir)
 	default:
 		return fmt.Errorf("unsupported format: %s", format)
 	}
@@ -209,6 +246,123 @@ func detectFormat(file *os.File) (string, error) {
 			return "", fmt.Errorf("unknown format")
 		}
 	}
+}
+
+func calculateZipUncompressedSize(filename string) (int64, error) {
+	reader, err := zip.OpenReader(filename)
+	if err != nil {
+		return 0, err
+	}
+	defer reader.Close()
+
+	var totalSize int64
+	for _, file := range reader.File {
+		if !file.FileInfo().IsDir() {
+			totalSize += int64(file.UncompressedSize64)
+		}
+	}
+	return totalSize, nil
+}
+
+func extractZipWithProgress(filename, outputDir string, bar *progressbar.ProgressBar) error {
+	if config.Password != "" {
+		return extractPasswordZipWithProgress(filename, outputDir, config.Password, bar)
+	}
+
+	reader, err := zip.OpenReader(filename)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	for _, file := range reader.File {
+		if strings.Contains(file.Name, "..") {
+			return fmt.Errorf("invalid file path: %s", file.Name)
+		}
+
+		path := filepath.Join(outputDir, file.Name)
+
+		if file.FileInfo().IsDir() {
+			os.MkdirAll(path, file.FileInfo().Mode())
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return err
+		}
+
+		fileReader, err := file.Open()
+		if err != nil {
+			return err
+		}
+		defer fileReader.Close()
+
+		targetFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.FileInfo().Mode())
+		if err != nil {
+			return err
+		}
+		defer targetFile.Close()
+
+		if bar != nil {
+			progressReader := progressbar.NewReader(fileReader, bar)
+			_, err = io.Copy(targetFile, &progressReader)
+		} else {
+			_, err = io.Copy(targetFile, fileReader)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func extractPasswordZipWithProgress(filename, outputDir, password string, bar *progressbar.ProgressBar) error {
+	reader, err := passwordzip.OpenReader(filename)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	for _, file := range reader.File {
+		if strings.Contains(file.Name, "..") {
+			return fmt.Errorf("invalid file path: %s", file.Name)
+		}
+
+		path := filepath.Join(outputDir, file.Name)
+
+		if file.FileInfo().IsDir() {
+			os.MkdirAll(path, file.FileInfo().Mode())
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return err
+		}
+
+		file.SetPassword(password)
+		fileReader, err := file.Open()
+		if err != nil {
+			return fmt.Errorf("failed to open file with password: %w", err)
+		}
+		defer fileReader.Close()
+
+		targetFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.FileInfo().Mode())
+		if err != nil {
+			return err
+		}
+		defer targetFile.Close()
+
+		if bar != nil {
+			progressReader := progressbar.NewReader(fileReader, bar)
+			_, err = io.Copy(targetFile, &progressReader)
+		} else {
+			_, err = io.Copy(targetFile, fileReader)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func extractZip(filename, outputDir string) error {
@@ -429,18 +583,33 @@ func compressFiles(files []string) {
 		fmt.Printf("Creating %s archive: %s\n", config.CompressType, config.OutputFile)
 	}
 
+	// Calculate total size for progress bar
+	var totalSize int64
+	if config.Progress && !config.Verbose {
+		totalSize = calculateTotalSize(files)
+	}
+
+	// Create progress bar if enabled and not in verbose mode
+	var bar *progressbar.ProgressBar
+	if config.Progress && !config.Verbose && totalSize > 0 {
+		bar = progressbar.DefaultBytes(
+			totalSize,
+			fmt.Sprintf("Creating %s", config.OutputFile),
+		)
+	}
+
 	var err error
 	switch strings.ToLower(config.CompressType) {
 	case "zip":
-		err = compressZip(files, config.OutputFile)
+		err = compressZip(files, config.OutputFile, bar)
 	case "tar":
-		err = compressTar(files, config.OutputFile)
+		err = compressTar(files, config.OutputFile, bar)
 	case "tar.gz", "tgz":
-		err = compressTarGz(files, config.OutputFile)
+		err = compressTarGz(files, config.OutputFile, bar)
 	case "tar.bz2", "tbz2":
-		err = compressTarBz2(files, config.OutputFile)
+		err = compressTarBz2(files, config.OutputFile, bar)
 	case "tar.xz", "txz":
-		err = compressTarXz(files, config.OutputFile)
+		err = compressTarXz(files, config.OutputFile, bar)
 	default:
 		fmt.Fprintf(os.Stderr, "Error: Unsupported compression type: %s\n", config.CompressType)
 		fmt.Fprintf(os.Stderr, "Supported types: zip, tar, tar.gz, tar.bz2, tar.xz\n")
@@ -476,9 +645,32 @@ func removeFileOrDir(path string) error {
 	return os.Remove(path)
 }
 
-func compressZip(files []string, outputFile string) error {
+func calculateTotalSize(files []string) int64 {
+	var totalSize int64
+	for _, file := range files {
+		size := calculateDirSize(file)
+		totalSize += size
+	}
+	return totalSize
+}
+
+func calculateDirSize(path string) int64 {
+	var size int64
+	filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return nil
+	})
+	return size
+}
+
+func compressZip(files []string, outputFile string, bar *progressbar.ProgressBar) error {
 	if config.Password != "" {
-		return compressPasswordZip(files, outputFile, config.Password)
+		return compressPasswordZip(files, outputFile, config.Password, bar)
 	}
 
 	zipFile, err := os.Create(outputFile)
@@ -491,14 +683,14 @@ func compressZip(files []string, outputFile string) error {
 	defer writer.Close()
 
 	for _, file := range files {
-		if err := addToZip(writer, file, ""); err != nil {
+		if err := addToZip(writer, file, "", bar); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func compressPasswordZip(files []string, outputFile, password string) error {
+func compressPasswordZip(files []string, outputFile, password string, bar *progressbar.ProgressBar) error {
 	zipFile, err := os.Create(outputFile)
 	if err != nil {
 		return err
@@ -509,14 +701,14 @@ func compressPasswordZip(files []string, outputFile, password string) error {
 	defer writer.Close()
 
 	for _, file := range files {
-		if err := addToPasswordZip(writer, file, "", password); err != nil {
+		if err := addToPasswordZip(writer, file, "", password, bar); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func addToZip(writer *zip.Writer, filePath, baseInZip string) error {
+func addToZip(writer *zip.Writer, filePath, baseInZip string, bar *progressbar.ProgressBar) error {
 	info, err := os.Stat(filePath)
 	if err != nil {
 		return err
@@ -537,7 +729,7 @@ func addToZip(writer *zip.Writer, filePath, baseInZip string) error {
 
 		for _, entry := range entries {
 			path := filepath.Join(filePath, entry.Name())
-			if err := addToZip(writer, path, newBaseInZip); err != nil {
+			if err := addToZip(writer, path, newBaseInZip, bar); err != nil {
 				return err
 			}
 		}
@@ -562,11 +754,16 @@ func addToZip(writer *zip.Writer, filePath, baseInZip string) error {
 		return err
 	}
 
-	_, err = io.Copy(fileInZip, file)
+	if bar != nil {
+		progressReader := progressbar.NewReader(file, bar)
+		_, err = io.Copy(fileInZip, &progressReader)
+	} else {
+		_, err = io.Copy(fileInZip, file)
+	}
 	return err
 }
 
-func addToPasswordZip(writer *passwordzip.Writer, filePath, baseInZip, password string) error {
+func addToPasswordZip(writer *passwordzip.Writer, filePath, baseInZip, password string, bar *progressbar.ProgressBar) error {
 	info, err := os.Stat(filePath)
 	if err != nil {
 		return err
@@ -587,7 +784,7 @@ func addToPasswordZip(writer *passwordzip.Writer, filePath, baseInZip, password 
 
 		for _, entry := range entries {
 			path := filepath.Join(filePath, entry.Name())
-			if err := addToPasswordZip(writer, path, newBaseInZip, password); err != nil {
+			if err := addToPasswordZip(writer, path, newBaseInZip, password, bar); err != nil {
 				return err
 			}
 		}
@@ -612,11 +809,16 @@ func addToPasswordZip(writer *passwordzip.Writer, filePath, baseInZip, password 
 		return err
 	}
 
-	_, err = io.Copy(fileInZip, file)
+	if bar != nil {
+		progressReader := progressbar.NewReader(file, bar)
+		_, err = io.Copy(fileInZip, &progressReader)
+	} else {
+		_, err = io.Copy(fileInZip, file)
+	}
 	return err
 }
 
-func compressTar(files []string, outputFile string) error {
+func compressTar(files []string, outputFile string, bar *progressbar.ProgressBar) error {
 	tarFile, err := os.Create(outputFile)
 	if err != nil {
 		return err
@@ -627,14 +829,14 @@ func compressTar(files []string, outputFile string) error {
 	defer writer.Close()
 
 	for _, file := range files {
-		if err := addToTar(writer, file, ""); err != nil {
+		if err := addToTar(writer, file, "", bar); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func addToTar(writer *tar.Writer, filePath, baseInTar string) error {
+func addToTar(writer *tar.Writer, filePath, baseInTar string, bar *progressbar.ProgressBar) error {
 	info, err := os.Stat(filePath)
 	if err != nil {
 		return err
@@ -667,7 +869,7 @@ func addToTar(writer *tar.Writer, filePath, baseInTar string) error {
 		for _, entry := range entries {
 			path := filepath.Join(filePath, entry.Name())
 			newBaseInTar := tarPath // 使用tarPath而不是重复添加filepath.Base(filePath)
-			if err := addToTar(writer, path, newBaseInTar); err != nil {
+			if err := addToTar(writer, path, newBaseInTar, bar); err != nil {
 				return err
 			}
 		}
@@ -685,11 +887,16 @@ func addToTar(writer *tar.Writer, filePath, baseInTar string) error {
 	}
 	defer file.Close()
 
-	_, err = io.Copy(writer, file)
+	if bar != nil {
+		progressReader := progressbar.NewReader(file, bar)
+		_, err = io.Copy(writer, &progressReader)
+	} else {
+		_, err = io.Copy(writer, file)
+	}
 	return err
 }
 
-func compressTarGz(files []string, outputFile string) error {
+func compressTarGz(files []string, outputFile string, bar *progressbar.ProgressBar) error {
 	tarGzFile, err := os.Create(outputFile)
 	if err != nil {
 		return err
@@ -703,14 +910,14 @@ func compressTarGz(files []string, outputFile string) error {
 	defer tarWriter.Close()
 
 	for _, file := range files {
-		if err := addToTar(tarWriter, file, ""); err != nil {
+		if err := addToTar(tarWriter, file, "", bar); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func compressTarBz2(files []string, outputFile string) error {
+func compressTarBz2(files []string, outputFile string, bar *progressbar.ProgressBar) error {
 	tarBz2File, err := os.Create(outputFile)
 	if err != nil {
 		return err
@@ -729,14 +936,14 @@ func compressTarBz2(files []string, outputFile string) error {
 	defer tarWriter.Close()
 
 	for _, file := range files {
-		if err := addToTar(tarWriter, file, ""); err != nil {
+		if err := addToTar(tarWriter, file, "", bar); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func compressTarXz(files []string, outputFile string) error {
+func compressTarXz(files []string, outputFile string, bar *progressbar.ProgressBar) error {
 	tarXzFile, err := os.Create(outputFile)
 	if err != nil {
 		return err
@@ -753,7 +960,7 @@ func compressTarXz(files []string, outputFile string) error {
 	defer tarWriter.Close()
 
 	for _, file := range files {
-		if err := addToTar(tarWriter, file, ""); err != nil {
+		if err := addToTar(tarWriter, file, "", bar); err != nil {
 			return err
 		}
 	}

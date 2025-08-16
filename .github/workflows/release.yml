@@ -20,53 +20,55 @@ jobs:
             arch: arm64
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.22'
-        cache: true
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
 
-    - name: Get version from tag
-      id: version
-      run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-    - name: Build and package binary
-      env:
-        GOOS: ${{ matrix.os }}
-        GOARCH: ${{ matrix.arch }}
-        CGO_ENABLED: 0
-      run: |
-        if [ "${{ matrix.os }}" = "windows" ]; then
-          EXT=".exe"
-          ARCHIVE_EXT=".zip"
-        else
-          EXT=""
-          ARCHIVE_EXT=".tar.gz"
-        fi
-        
-        BINARY_NAME="unp${EXT}"
-        ARCHIVE_NAME="extractor-${{ matrix.os }}-${{ matrix.arch }}${ARCHIVE_EXT}"
-        
-        # Build binary
-        go build -ldflags="-s -w" -o ${BINARY_NAME} .
-        
-        # Create archive
-        if [ "${{ matrix.os }}" = "windows" ]; then
-          zip ${ARCHIVE_NAME} ${BINARY_NAME}
-        else
-          tar -czf ${ARCHIVE_NAME} ${BINARY_NAME}
-        fi
-        
-        echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
+      - name: Build and package binary
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            EXT=".exe"
+            ARCHIVE_EXT=".zip"
+          else
+            EXT=""
+            ARCHIVE_EXT=".tar.gz"
+          fi
+          
+          BINARY_NAME="unp${EXT}"
+          ARCHIVE_NAME="unp-${{ matrix.os }}-${{ matrix.arch }}${ARCHIVE_EXT}"
+          
+          # Build binary
+          go build -ldflags="-s -w" -o ${BINARY_NAME} .
+          
+          # Create archive
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            zip ${ARCHIVE_NAME} ${BINARY_NAME}
+          else
+            tar -czf ${ARCHIVE_NAME} ${BINARY_NAME}
+          fi
+          
+          echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
 
-    - name: Upload archives to release
-      uses: softprops/action-gh-release@v2
-      with:
-        files: ${{ env.ARCHIVE_NAME }}
-        generate_release_notes: true
-        make_latest: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload archives to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ARCHIVE_NAME }}
+          generate_release_notes: true
+          make_latest: true
+          fail_on_unmatched_files: true
+          append_body: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

